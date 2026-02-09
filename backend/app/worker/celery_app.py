@@ -4,11 +4,13 @@ from app.core.config import settings
 celery = Celery(
     "worker",
     broker=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
-    backend=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
+    backend=f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0",
+    include=["app.services.memory"]
 )
 
 celery.conf.task_routes = {
     "app.worker.test_task": "main-queue",
+    "consolidate_memory_task": "main-queue"
 }
 
 @celery.task(name="test_task")

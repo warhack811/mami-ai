@@ -1,17 +1,49 @@
+import time
+import uuid
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
 from app.db.session import engine
 from app.models.user import Base
+
+# Setup Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("mami_ai")
+
+class StructuredLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        request_id = str(uuid.uuid4())
+        start_time = time.time()
+
+        # Log Request
+        logger.info(f"Request started: {request.method} {request.url.path} ID={request_id}")
+
+        try:
+            response = await call_next(request)
+            process_time = time.time() - start_time
+
+            # Log Response
+            logger.info(f"Request finished: {request.method} {request.url.path} ID={request_id} Status={response.status_code} Duration={process_time:.4f}s")
+
+            response.headers["X-Request-ID"] = request_id
+            return response
+        except Exception as e:
+            process_time = time.time() - start_time
+            logger.error(f"Request failed: {request.method} {request.url.path} ID={request_id} Error={str(e)} Duration={process_time:.4f}s")
+            raise e
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create DB Tables
     try:
         Base.metadata.create_all(bind=engine)
+        logger.info("Database tables created/verified.")
     except Exception as e:
-        print(f"Error creating tables: {e}")
+        logger.error(f"Error creating tables: {e}")
     yield
 
 def create_application() -> FastAPI:
@@ -23,6 +55,9 @@ def create_application() -> FastAPI:
         lifespan=lifespan
     )
 
+    # Middleware
+    application.add_middleware(StructuredLoggingMiddleware)
+
     # Set all CORS enabled origins
     if settings.BACKEND_CORS_ORIGINS:
         application.add_middleware(
@@ -31,6 +66,15 @@ def create_application() -> FastAPI:
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+        )
+
+    # Global Exception Handler
+    @application.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Global Exception: {str(exc)}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"message": "An internal error occurred. Please try again later.", "detail": str(exc)},
         )
 
     # Simple Health Check
