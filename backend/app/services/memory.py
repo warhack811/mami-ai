@@ -44,24 +44,39 @@ def consolidate_memory_task(user_id: int, text: str):
         result = chain.invoke({"text": text, "format_instructions": parser.get_format_instructions()})
 
         # Update Neo4j
-        for entity in result.get("entities", []):
-            neo4j_client.query(
-                "MERGE (e:Entity {name: $name}) ON CREATE SET e.type = $type",
-                {"name": entity["name"], "type": entity["type"]}
-            )
-            # Link User to Entity
-            neo4j_client.query(
-                "MATCH (u:User {id: $uid}), (e:Entity {name: $name}) MERGE (u)-[:KNOWS]->(e)",
-                {"uid": user_id, "name": entity["name"]}
-            )
-
-        for relation in result.get("relations", []):
+        entities = result.get("entities", [])
+        if entities:
+            # Batch merge entities
             neo4j_client.query(
                 """
-                MATCH (a:Entity {name: $source}), (b:Entity {name: $target})
-                MERGE (a)-[:RELATION {type: $type}]->(b)
+                UNWIND $entities AS entity
+                MERGE (e:Entity {name: entity.name})
+                ON CREATE SET e.type = entity.type
                 """,
-                {"source": relation["source"], "target": relation["target"], "type": relation["type"]}
+                {"entities": entities}
+            )
+            # Batch link User to Entities
+            neo4j_client.query(
+                """
+                MATCH (u:User {id: $uid})
+                WITH u
+                UNWIND $entities AS entity
+                MATCH (e:Entity {name: entity.name})
+                MERGE (u)-[:KNOWS]->(e)
+                """,
+                {"uid": user_id, "entities": entities}
+            )
+
+        relations = result.get("relations", [])
+        if relations:
+            # Batch merge relations
+            neo4j_client.query(
+                """
+                UNWIND $relations AS rel
+                MATCH (a:Entity {name: rel.source}), (b:Entity {name: rel.target})
+                MERGE (a)-[:RELATION {type: rel.type}]->(b)
+                """,
+                {"relations": relations}
             )
 
         print(f"Memory consolidated for user {user_id}")
