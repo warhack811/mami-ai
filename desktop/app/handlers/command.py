@@ -3,6 +3,7 @@ import json
 import logging
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Confirm
 
 console = Console()
 logger = logging.getLogger("desktop_client")
@@ -78,16 +79,9 @@ class CommandHandler:
             self.client.send_response({"status": "error", "message": str(e)})
 
     def _confirm_action(self, prompt: str) -> bool:
-        # In a real GUI app, this would be a popup.
-        # For CLI, we use input.
-        console.print(Panel(f"[bold red]CONFIRMATION REQUIRED[/bold red]\n{prompt}\n(y/n)", border_style="red"))
-        # response = input("> ")
-        # return response.lower() == 'y'
+        if not console.is_interactive:
+            console.print(Panel(f"[bold red]CONFIRMATION REQUIRED (Non-interactive)[/bold red]\n{prompt}\nAction REJECTED.", border_style="red"))
+            return False
 
-        # NOTE: Blocking input in the websocket callback might freeze the heartbeat if not threaded properly.
-        # For this prototype, we will AUTO-CONFIRM for safe actions and REJECT for dangerous ones
-        # to avoid hanging the client in non-interactive modes (like this dev environment).
-        # In production, this should dispatch a UI event.
-
-        console.print("[yellow]Auto-confirming for prototype...[/yellow]")
-        return True
+        console.print(Panel(f"[bold red]CONFIRMATION REQUIRED[/bold red]\n{prompt}", border_style="red"))
+        return Confirm.ask("Proceed?", console=console)
