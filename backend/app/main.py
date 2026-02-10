@@ -7,8 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
-from app.db.session import engine
+from app.db.session import engine, SessionLocal
 from app.models.user import Base
+from app.models.settings import SystemSettings # Ensure table creation
+from app.api.v1.endpoints.admin import init_settings
 from app.core.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
 
 # Setup Logging
@@ -42,6 +44,13 @@ async def lifespan(app: FastAPI):
     # Create DB Tables
     try:
         Base.metadata.create_all(bind=engine)
+        SystemSettings.metadata.create_all(bind=engine)
+
+        # Init Default Settings
+        db = SessionLocal()
+        init_settings(db)
+        db.close()
+
         logger.info("Database tables created/verified.")
     except Exception as e:
         logger.error(f"Error creating tables: {e}")

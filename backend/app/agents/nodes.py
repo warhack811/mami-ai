@@ -2,10 +2,11 @@ from typing import Annotated, Literal, TypedDict, List
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
-from app.core.config import settings
+from app.core.config import settings, get_system_setting
 from app.services.vector_store import vector_store
 from app.graph.client import neo4j_client
 from app.tools.definitions import tools
+from app.db.session import SessionLocal
 
 # Define the state of the graph
 class AgentState(TypedDict):
@@ -13,14 +14,17 @@ class AgentState(TypedDict):
     user_id: int
     next_step: str
     context: str
+    retry_count: int
 
-# Initialize Models with Tool Binding
-llm_router = ChatGroq(model="llama-3.1-8b-instant", api_key=settings.GROQ_API_KEY)
-llm_coder = ChatGroq(model="llama-3.1-70b-versatile", api_key=settings.GROQ_API_KEY)
-llm_chat = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=settings.GEMINI_API_KEY)
+# Initialize Models Dynamically
+def get_llm(model_key: str, default_model: str, api_key: str = None):
+    # Fetch from DB Settings
+    db = SessionLocal()
+    model_name = get_system_setting(db, model_key, default_model)
+    db.close()
 
-# Bind tools to the coder agent (and potentially router if it decides to search directly)
-llm_coder_with_tools = llm_coder.bind_tools(tools)
+    # We assume Groq for simplicity, but logic could switch provider based on model name
+    return ChatGroq(model=model_name, api_key=api_key or settings.GROQ_API_KEY)
 
 # Helper function for context retrieval (Existing)
 def retrieve_context(user_id: int, query: str) -> str:
@@ -35,7 +39,6 @@ def retrieve_context(user_id: int, query: str) -> str:
         WHERE toLower(e.name) CONTAINS toLower($query) OR toLower(e.type) CONTAINS toLower($query)
         RETURN e.name as entity, e.description as description LIMIT 5
         """
-        # Simple keyword match on graph
         graph_data = neo4j_client.query(graph_query, {"uid": user_id, "query": query})
         graph_context = "\n".join([f"{record.get('entity')}: {record.get('description', '')}" for record in graph_data])
 
@@ -53,10 +56,7 @@ def router_node(state: AgentState):
     # Retrieve Context
     context = retrieve_context(user_id, last_message)
     state['context'] = context
-
-    # Enhanced Routing Logic (could use LLM here too)
-    system_prompt = SystemMessage(content="You are a routing agent. Decide if the user needs a Coder (for technical tasks, file ops), an Analyst (for deep reasoning, reports), or just a Chat.")
-    # For speed, we stick to heuristic + lightweight LLM check if needed.
+    state['retry_count'] = 0 # Reset retry count
 
     if "code" in last_message.lower() or "file" in last_message.lower() or "search" in last_message.lower():
         return {"next_step": "coder", "context": context}
@@ -70,28 +70,44 @@ def chat_node(state: AgentState):
     messages = state['messages']
     context = state.get('context', '')
 
+    # Dynamic Model Loading
+    llm = get_llm("AI_MODEL_CHAT", "gemini-1.5-flash", settings.GEMINI_API_KEY) # Use Gemini client if available
+    # Using Groq fallback for uniform interface in this prototype if Gemini fails setup
+    # But let's assume we use ChatGoogleGenerativeAI if key is present
+    if settings.GEMINI_API_KEY:
+         llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=settings.GEMINI_API_KEY)
+
     system_prompt = SystemMessage(content=f"""You are Mami AI, a helpful and friendly personal assistant.
     Use the following context to personalize your response:
     {context}
     """)
 
-    response = llm_chat.invoke([system_prompt] + messages)
+    response = llm.invoke([system_prompt] + messages)
     return {"messages": [response]}
 
-# Coder Agent (Now with Tools!)
+# Coder Agent (Now with Self-Healing!)
 def coder_node(state: AgentState):
     messages = state['messages']
     context = state.get('context', '')
+    retry_count = state.get('retry_count', 0)
 
-    system_prompt = SystemMessage(content=f"""You are a senior software engineer and autonomous agent.
+    # Dynamic Model Loading
+    llm = get_llm("AI_MODEL_CODER", "llama-3.1-70b-versatile")
+    llm_with_tools = llm.bind_tools(tools)
+
+    system_prompt_content = f"""You are a senior software engineer and autonomous agent.
     You have access to tools: web_search, file_operation.
     Use them when necessary.
     Context:
     {context}
-    """)
+    """
 
-    # We invoke the model bound with tools
-    response = llm_coder_with_tools.invoke([system_prompt] + messages)
+    if retry_count > 0:
+        system_prompt_content += f"\nWARNING: You failed previously. Analyze the last tool output error and fix your approach. Retry count: {retry_count}"
+
+    system_prompt = SystemMessage(content=system_prompt_content)
+
+    response = llm_with_tools.invoke([system_prompt] + messages)
     return {"messages": [response]}
 
 # Analyst Agent

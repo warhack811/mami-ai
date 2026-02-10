@@ -60,3 +60,20 @@ def create_user(
     db.commit()
     db.refresh(user)
     return user
+
+def get_current_user(
+    token: str = Depends(security.oauth2_scheme),
+    db: Session = Depends(get_db)
+) -> User:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[security.ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+             raise HTTPException(status_code=401, detail="Could not validate credentials")
+    except (jwt.JWTError, ValidationError):
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
+
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user

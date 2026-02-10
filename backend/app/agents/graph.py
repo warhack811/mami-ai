@@ -2,6 +2,8 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from app.agents.nodes import AgentState, router_node, chat_node, coder_node, analyst_node
 from app.tools.definitions import tools
+import json
+from langchain_core.messages import ToolMessage
 
 # Create Tool Node
 tool_node = ToolNode(tools)
@@ -49,8 +51,34 @@ workflow.add_conditional_edges(
     }
 )
 
-# Loop back from tools to the agent that called them (coder)
-workflow.add_edge("tools", "coder")
+def check_tool_output(state: AgentState):
+    messages = state['messages']
+    last_message = messages[-1]
+
+    # Check if it's a ToolMessage
+    if isinstance(last_message, ToolMessage):
+        content = last_message.content
+        if "error" in content.lower() or "failed" in content.lower():
+            # Increment retry
+            retry_count = state.get("retry_count", 0) + 1
+            state["retry_count"] = retry_count
+
+            if retry_count < 3:
+                return "coder" # Retry
+            else:
+                return END # Give up
+
+    return "coder" # Normal loop back to agent to interpret result
+
+# Edge from Tools back to Coder (with error check interception)
+workflow.add_conditional_edges(
+    "tools",
+    check_tool_output,
+    {
+        "coder": "coder",
+        END: END
+    }
+)
 
 workflow.add_edge("chat", END)
 workflow.add_edge("analyst", END)

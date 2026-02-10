@@ -1,6 +1,10 @@
 from typing import List, Optional, Union
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings
+from sqlalchemy.orm import Session
+# Note: We can't easily inject DB session into Pydantic settings loading at startup without circular imports.
+# Strategy: We load base settings from Env, and specific dynamic settings (Models/Keys) are fetched on demand
+# via a Helper Service, not this static Config class.
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Mami AI"
@@ -47,7 +51,7 @@ class Settings(BaseSettings):
     CHROMA_DB_HOST: str
     CHROMA_DB_PORT: str = "8000"
 
-    # AI Keys
+    # AI Keys (Base / Fallback)
     GROQ_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
@@ -58,3 +62,9 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
+
+# Helper to fetch dynamic config
+def get_system_setting(db: Session, key: str, default: str = None) -> str:
+    from app.models.settings import SystemSettings
+    setting = db.query(SystemSettings).filter(SystemSettings.key == key).first()
+    return setting.value if setting else default
