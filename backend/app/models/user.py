@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Integer, String, DateTime, ForeignKey, Enum
+from sqlalchemy import Boolean, Column, Integer, String, DateTime, ForeignKey, Enum, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
@@ -35,19 +35,27 @@ class Chat(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, index=True)
-    owner_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    owner_id = Column(Integer, ForeignKey("users.id"), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     owner = relationship("User", back_populates="chats")
     messages = relationship("Message", back_populates="chat")
+
+    __table_args__ = (
+        Index('ix_chats_owner_created', 'owner_id', 'created_at'),
+    )
 
 class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, ForeignKey("chats.id"))
+    chat_id = Column(Integer, ForeignKey("chats.id"), index=True)
     role = Column(String) # user, assistant, system
     content = Column(String)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     chat = relationship("Chat", back_populates="messages")
+
+    __table_args__ = (
+        Index('ix_messages_chat_created', 'chat_id', 'created_at'),
+    )

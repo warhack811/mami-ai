@@ -47,6 +47,9 @@ class DesktopClient:
     def run(self):
         while True:
             try:
+                # SSL Context for WSS support (if needed in future)
+                # sslopt = {"cert_reqs": ssl.CERT_NONE}
+
                 self.ws = websocket.WebSocketApp(
                     self.ws_url,
                     on_open=self.on_open,
@@ -55,6 +58,9 @@ class DesktopClient:
                     on_close=self.on_close
                 )
                 self.ws.run_forever()
+            except KeyboardInterrupt:
+                console.print("[yellow]Stopping client...[/yellow]")
+                break
             except Exception as e:
                 console.print(f"[red]Connection failed: {e}[/red]")
 

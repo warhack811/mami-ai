@@ -9,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.core.config import settings
 from app.db.session import engine
 from app.models.user import Base
+from app.core.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO)
@@ -56,6 +57,8 @@ def create_application() -> FastAPI:
     )
 
     # Middleware
+    application.state.limiter = limiter
+    application.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     application.add_middleware(StructuredLoggingMiddleware)
 
     # Set all CORS enabled origins

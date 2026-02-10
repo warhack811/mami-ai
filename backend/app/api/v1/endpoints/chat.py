@@ -10,6 +10,8 @@ from app.agents.graph import app_graph
 from app.models.user import User, Chat, Message
 from app.services.memory import consolidate_memory_task
 from langchain_core.messages import HumanMessage, AIMessage
+from app.core.rate_limit import limiter
+from fastapi import Request
 
 router = APIRouter()
 
@@ -51,7 +53,9 @@ async def stream_graph_response(inputs: dict, user_id: int, db: Session, chat_id
     yield "data: [DONE]\n\n"
 
 @router.post("/chat/stream")
+@limiter.limit("10/minute") # Example: 10 requests per minute per IP
 async def chat_stream_endpoint(
+    request: Request,
     message: str,
     user_id: int = 1,
     db: Session = Depends(get_db)
