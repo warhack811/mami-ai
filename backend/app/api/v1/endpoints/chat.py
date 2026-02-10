@@ -3,6 +3,7 @@ import asyncio
 from typing import AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.responses import StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from app.db.session import get_db
@@ -13,8 +14,6 @@ from app.services.connection_manager import manager
 from langchain_core.messages import HumanMessage, AIMessage
 from app.core.rate_limit import limiter
 from fastapi import Request
-import json
-import asyncio
 
 router = APIRouter()
 
@@ -47,8 +46,12 @@ async def stream_graph_response(inputs: dict, user_id: int, db: Session, chat_id
     # Once stream is done, save the full response
     if full_response:
         assistant_msg = Message(chat_id=chat_id, role="assistant", content=full_response)
-        db.add(assistant_msg)
-        db.commit()
+
+        def save_msg():
+            db.add(assistant_msg)
+            db.commit()
+
+        await run_in_threadpool(save_msg)
 
         # Trigger Memory Consolidation via Celery
         consolidate_memory_task.delay(user_id, f"User: ...\nAssistant: {full_response}")
@@ -57,7 +60,7 @@ async def stream_graph_response(inputs: dict, user_id: int, db: Session, chat_id
 
 @router.post("/chat/stream")
 @limiter.limit("10/minute") # Example: 10 requests per minute per IP
-async def chat_stream_endpoint(
+def chat_stream_endpoint(
     request: Request,
     message: str,
     user_id: int = 1,
