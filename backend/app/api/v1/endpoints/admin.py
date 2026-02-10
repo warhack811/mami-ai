@@ -61,7 +61,8 @@ def init_settings(db: Session):
     defaults = {
         "AI_MODEL_ROUTER": "llama-3.1-8b-instant",
         "AI_MODEL_CODER": "llama-3.1-70b-versatile",
-        "AI_MODEL_CHAT": "gemini-1.5-flash"
+        "AI_MODEL_CHAT": "gemini-1.5-flash",
+        "OLLAMA_BASE_URL": "http://host.docker.internal:11434" # Access host localhost from docker
     }
     for key, value in defaults.items():
         if not db.query(SystemSettings).filter(SystemSettings.key == key).first():

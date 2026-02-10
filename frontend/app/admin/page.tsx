@@ -75,6 +75,8 @@ function SettingRow({ setting, onUpdate }: { setting: Setting, onUpdate: (k: str
   const [val, setVal] = useState(setting.value);
   const [isEditing, setIsEditing] = useState(false);
 
+  const isModelSetting = setting.key.startsWith("AI_MODEL");
+
   return (
     <div className="p-4 grid grid-cols-12 gap-4 items-center hover:bg-gray-750 transition-colors">
       <div className="col-span-4">
@@ -83,12 +85,27 @@ function SettingRow({ setting, onUpdate }: { setting: Setting, onUpdate: (k: str
       </div>
       <div className="col-span-6">
         {isEditing ? (
-          <input
-            type="text"
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-            className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm font-mono text-white focus:ring-1 focus:ring-blue-500 outline-none"
-          />
+          isModelSetting ? (
+            <select
+              value={val}
+              onChange={(e) => setVal(e.target.value)}
+              className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm font-mono text-white focus:ring-1 focus:ring-blue-500 outline-none"
+            >
+                <option value="llama-3.1-8b-instant">Llama 3.1 8b (Groq)</option>
+                <option value="llama-3.1-70b-versatile">Llama 3.1 70b (Groq)</option>
+                <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+                <option value="ollama/llama3">Local Llama 3 (Ollama)</option>
+                <option value="ollama/mistral">Local Mistral (Ollama)</option>
+                <option value="ollama/phi3">Local Phi-3 (Ollama)</option>
+            </select>
+          ) : (
+            <input
+                type="text"
+                value={val}
+                onChange={(e) => setVal(e.target.value)}
+                className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 text-sm font-mono text-white focus:ring-1 focus:ring-blue-500 outline-none"
+            />
+          )
         ) : (
           <div className="font-mono text-sm text-gray-300 truncate" title={val}>
             {val}

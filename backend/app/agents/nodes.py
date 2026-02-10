@@ -2,6 +2,7 @@ from typing import Annotated, Literal, TypedDict, List
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, BaseMessage
 from langchain_groq import ChatGroq
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 from app.core.config import settings, get_system_setting
 from app.services.vector_store import vector_store
 from app.graph.client import neo4j_client
@@ -21,9 +22,20 @@ def get_llm(model_key: str, default_model: str, api_key: str = None):
     # Fetch from DB Settings
     db = SessionLocal()
     model_name = get_system_setting(db, model_key, default_model)
+    ollama_url = get_system_setting(db, "OLLAMA_BASE_URL", "http://host.docker.internal:11434")
     db.close()
 
-    # We assume Groq for simplicity, but logic could switch provider based on model name
+    # Provider Logic
+    if model_name.startswith("ollama/"):
+        # Strip prefix and use Ollama
+        real_model = model_name.replace("ollama/", "")
+        print(f"Using Local Ollama Model: {real_model} at {ollama_url}")
+        return ChatOllama(model=real_model, base_url=ollama_url, temperature=0)
+
+    if "gemini" in model_name:
+        return ChatGoogleGenerativeAI(model=model_name, google_api_key=settings.GEMINI_API_KEY)
+
+    # Default to Groq
     return ChatGroq(model=model_name, api_key=api_key or settings.GROQ_API_KEY)
 
 # Helper function for context retrieval (Existing)
