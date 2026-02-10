@@ -149,5 +149,28 @@ def coder_node(state: AgentState):
 # Analyst Agent
 def analyst_node(state: AgentState):
     messages = state['messages']
-    response = AIMessage(content="Analyst agent processing... (Placeholder for now)")
+    context = state.get('context', '')
+    sentiment = state.get('sentiment', {})
+    urgency = sentiment.get("urgency", "Medium")
+
+    # Dynamic Model Loading - Default to a strong reasoning model
+    llm = get_llm("AI_MODEL_ANALYST", "llama-3.1-70b-versatile")
+
+    system_prompt = SystemMessage(content=f"""You are a Senior Data Analyst and Strategy Consultant.
+    Your goal is to process complex information, identify patterns, and provide actionable insights.
+
+    CONTEXT FROM MEMORY:
+    {context}
+
+    USER SENTIMENT:
+    Urgency: {urgency}
+
+    INSTRUCTIONS:
+    1. Analyze the user's request and provided context.
+    2. Structure your response clearly (use bullet points or sections).
+    3. Be objective and data-driven.
+    4. If the user asks for code or specific actions, outline the logic but defer the implementation details to the coder agent (if applicable).
+    """)
+
+    response = llm.invoke([system_prompt] + messages)
     return {"messages": [response]}
