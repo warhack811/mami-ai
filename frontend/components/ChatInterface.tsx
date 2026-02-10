@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, FileCode, Search, User, Bot, AlertTriangle, Terminal } from 'lucide-react';
+import { Send, FileCode, Search, User, Bot, AlertTriangle, Terminal, Mic, Square } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -18,7 +18,9 @@ export default function ChatInterface() {
     { role: 'assistant', content: "Hello! I'm Mami AI. How can I help you today?" }
   ]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [artifact, setArtifact] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -26,6 +28,42 @@ export default function ChatInterface() {
   };
 
   useEffect(scrollToBottom, [messages]);
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      const chunks: Blob[] = [];
+
+      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append('file', blob, 'recording.webm');
+
+        setIsLoading(true);
+        try {
+          const res = await api.post('/voice/transcribe', formData);
+          setInput(res.data.text);
+        } catch (err) {
+          console.error("Transcription failed", err);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Microphone access denied", err);
+    }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+  };
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -170,14 +208,20 @@ export default function ChatInterface() {
         {/* Input */}
         <div className="p-4 border-t border-gray-800 bg-gray-900">
             <div className="flex items-center space-x-2">
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            className={`p-3 rounded-full transition-colors ${isRecording ? 'bg-red-600 hover:bg-red-500 animate-pulse' : 'bg-gray-700 hover:bg-gray-600'}`}
+          >
+            {isRecording ? <Square size={20} /> : <Mic size={20} />}
+          </button>
             <input
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-                placeholder="Ask anything..."
+            placeholder={isRecording ? "Listening..." : "Ask anything..."}
                 className="flex-1 bg-gray-800 border-none rounded-full px-4 py-3 focus:ring-2 focus:ring-blue-500 outline-none text-white placeholder-gray-500"
-                disabled={isLoading}
+            disabled={isLoading || isRecording}
             />
             <button
                 onClick={sendMessage}

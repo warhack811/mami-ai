@@ -9,9 +9,12 @@ from app.db.session import get_db
 from app.agents.graph import app_graph
 from app.models.user import User, Chat, Message
 from app.services.memory import consolidate_memory_task
+from app.services.connection_manager import manager
 from langchain_core.messages import HumanMessage, AIMessage
 from app.core.rate_limit import limiter
 from fastapi import Request
+import json
+import asyncio
 
 router = APIRouter()
 
@@ -90,14 +93,19 @@ async def chat_stream_endpoint(
         media_type="text/event-stream"
     )
 
-# WebSocket for Desktop Client (Keep existing)
+# WebSocket for Desktop Client
 @router.websocket("/ws/desktop/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    await websocket.accept()
+    await manager.connect(client_id, websocket)
     try:
         while True:
             data = await websocket.receive_text()
-            print(f"Received from desktop {client_id}: {data}")
-            await websocket.send_text(f"Server received: {data}")
+            try:
+                # If it's a response to a command, let the manager handle it
+                # We assume client sends back JSON with status/output
+                message = json.loads(data)
+                manager.handle_response(client_id, message)
+            except json.JSONDecodeError:
+                pass
     except WebSocketDisconnect:
-        print(f"Client {client_id} disconnected")
+        manager.disconnect(client_id)

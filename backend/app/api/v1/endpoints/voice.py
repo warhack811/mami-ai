@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 import shutil
 import os
-# from app.services.voice import transcribe_audio # Placeholder import
+from app.services.voice import transcribe_audio
 
 router = APIRouter()
 
@@ -16,9 +16,8 @@ async def transcribe_endpoint(file: UploadFile = File(...)):
         with open(temp_file, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Call Whisper Service (Placeholder)
-        # transcription = transcribe_audio(temp_file)
-        transcription = "This is a simulated transcription of the uploaded audio file."
+        # Call Whisper Service
+        transcription = await transcribe_audio(temp_file)
 
         # Cleanup
         os.remove(temp_file)
