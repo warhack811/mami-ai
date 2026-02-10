@@ -10,8 +10,11 @@ from app.core.config import settings
 from app.db.session import engine, SessionLocal
 from app.models.user import Base
 from app.models.settings import SystemSettings # Ensure table creation
+from app.models.goal import Goal # Ensure table creation
 from app.api.v1.endpoints.admin import init_settings
 from app.core.rate_limit import limiter, RateLimitExceeded, _rate_limit_exceeded_handler
+from app.services.proactive import proactive_loop
+import asyncio
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +48,7 @@ async def lifespan(app: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
         SystemSettings.metadata.create_all(bind=engine)
+        Goal.metadata.create_all(bind=engine)
 
         # Init Default Settings
         db = SessionLocal()
@@ -54,6 +58,10 @@ async def lifespan(app: FastAPI):
         logger.info("Database tables created/verified.")
     except Exception as e:
         logger.error(f"Error creating tables: {e}")
+
+    # Start Proactive Loop
+    asyncio.create_task(proactive_loop())
+
     yield
 
 def create_application() -> FastAPI:

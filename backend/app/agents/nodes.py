@@ -5,6 +5,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
 from app.core.config import settings, get_system_setting
 from app.services.vector_store import vector_store
+from app.services.sentiment import analyze_sentiment
 from app.graph.client import neo4j_client
 from app.tools.definitions import tools
 from app.db.session import SessionLocal
@@ -16,6 +17,7 @@ class AgentState(TypedDict):
     next_step: str
     context: str
     retry_count: int
+    sentiment: dict # Store sentiment analysis result
 
 # Initialize Models Dynamically
 def get_llm(model_key: str, default_model: str, api_key: str = None):
@@ -60,14 +62,17 @@ def retrieve_context(user_id: int, query: str) -> str:
         return ""
 
 # Router Agent
-def router_node(state: AgentState):
+async def router_node(state: AgentState):
     messages = state['messages']
     last_message = messages[-1].content
     user_id = state['user_id']
 
-    # Retrieve Context
+    # Parallel: Retrieve Context & Analyze Sentiment
     context = retrieve_context(user_id, last_message)
+    sentiment = await analyze_sentiment(last_message)
+
     state['context'] = context
+    state['sentiment'] = sentiment.dict()
     state['retry_count'] = 0 # Reset retry count
 
     if "code" in last_message.lower() or "file" in last_message.lower() or "search" in last_message.lower():
@@ -81,16 +86,26 @@ def router_node(state: AgentState):
 def chat_node(state: AgentState):
     messages = state['messages']
     context = state.get('context', '')
+    sentiment = state.get('sentiment', {})
+
+    tone = sentiment.get("suggested_tone", "Helpful")
+    mood = sentiment.get("mood", "Neutral")
 
     # Dynamic Model Loading
-    llm = get_llm("AI_MODEL_CHAT", "gemini-1.5-flash", settings.GEMINI_API_KEY) # Use Gemini client if available
-    # Using Groq fallback for uniform interface in this prototype if Gemini fails setup
-    # But let's assume we use ChatGoogleGenerativeAI if key is present
-    if settings.GEMINI_API_KEY:
+    llm = get_llm("AI_MODEL_CHAT", "gemini-1.5-flash", settings.GEMINI_API_KEY)
+
+    if settings.GEMINI_API_KEY and "gemini" in getattr(llm, "model_name", ""):
          llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=settings.GEMINI_API_KEY)
 
-    system_prompt = SystemMessage(content=f"""You are Mami AI, a helpful and friendly personal assistant.
-    Use the following context to personalize your response:
+    system_prompt = SystemMessage(content=f"""You are Mami AI, a highly adaptive personal assistant.
+
+    USER STATE:
+    Mood: {mood}
+
+    YOUR INSTRUCTION:
+    Adopt a {tone} tone. Match the user's energy.
+
+    MEMORY CONTEXT:
     {context}
     """)
 
@@ -102,14 +117,23 @@ def coder_node(state: AgentState):
     messages = state['messages']
     context = state.get('context', '')
     retry_count = state.get('retry_count', 0)
+    sentiment = state.get('sentiment', {})
+    urgency = sentiment.get("urgency", "Low")
 
     # Dynamic Model Loading
     llm = get_llm("AI_MODEL_CODER", "llama-3.1-70b-versatile")
     llm_with_tools = llm.bind_tools(tools)
 
+    style_instruction = "Be thorough and explain your logic."
+    if urgency == "High":
+        style_instruction = "Be concise. Code only. No fluff."
+
     system_prompt_content = f"""You are a senior software engineer and autonomous agent.
     You have access to tools: web_search, file_operation.
     Use them when necessary.
+
+    STYLE: {style_instruction}
+
     Context:
     {context}
     """

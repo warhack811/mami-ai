@@ -6,6 +6,9 @@ from langchain_core.output_parsers import JsonOutputParser
 from app.core.config import settings
 from app.graph.client import neo4j_client
 from app.worker.celery_app import celery
+from app.models.goal import Goal
+from app.db.session import SessionLocal
+import datetime
 
 class Entity(BaseModel):
     name: str = Field(description="Name of the entity (Person, Project, Technology, etc.)")
@@ -16,9 +19,15 @@ class Relation(BaseModel):
     target: str = Field(description="Target entity name")
     type: str = Field(description="Relationship type (e.g., LIKES, WORKS_ON, LOCATED_IN)")
 
+class NewGoal(BaseModel):
+    title: str = Field(description="Short title of the goal or task")
+    description: str = Field(description="Details about the goal")
+    due_date_str: str = Field(description="Due date in YYYY-MM-DD format, or empty if none", default="")
+
 class KnowledgeGraphUpdate(BaseModel):
     entities: List[Entity] = Field(description="List of entities identified in the text")
     relations: List[Relation] = Field(description="List of relationships identified between entities")
+    goals: List[NewGoal] = Field(description="List of new goals or tasks explicitly mentioned by user", default=[])
 
 # Initialize LLM for extraction (Use a smaller/faster model for this background task)
 # Note: Initializing this at module level in Celery worker is fine.
@@ -63,6 +72,19 @@ def consolidate_memory_task(user_id: int, text: str):
                 """,
                 {"source": relation["source"], "target": relation["target"], "type": relation["type"]}
             )
+
+        # Save Goals
+        db = SessionLocal()
+        for goal_data in result.get("goals", []):
+            try:
+                due = datetime.datetime.strptime(goal_data["due_date_str"], "%Y-%m-%d") if goal_data["due_date_str"] else None
+                new_goal = Goal(user_id=user_id, title=goal_data["title"], description=goal_data["description"], due_date=due)
+                db.add(new_goal)
+                print(f"New Goal Saved: {goal_data['title']}")
+            except Exception as ex:
+                print(f"Goal save error: {ex}")
+        db.commit()
+        db.close()
 
         print(f"Memory consolidated for user {user_id}")
     except Exception as e:

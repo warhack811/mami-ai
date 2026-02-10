@@ -21,8 +21,16 @@ class CommandHandler:
             self.handle_write_file(args)
         elif command == "exec_cmd":
             self.handle_exec_cmd(args)
+        elif command == "nudge":
+            self.handle_nudge(args)
         else:
             console.print(f"[yellow]Unknown command: {command}[/yellow]")
+
+    def handle_nudge(self, args):
+        message = args.get("message")
+        console.print(Panel(f"[bold cyan]ℹ️  Mami AI:[/bold cyan] {message}", border_style="cyan"))
+        # In a real GUI, show a system notification (toast)
+        # import plyer; plyer.notification.notify(title='Mami AI', message=message)
 
     def handle_write_file(self, args):
         filepath = args.get("filepath")
